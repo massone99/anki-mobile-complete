@@ -9,7 +9,7 @@ import { C, S, Action, IconCircle, Label, Paragraph, type UIPrefs } from '../the
 import { CardBody } from '../theme/CardBody';
 import { getSpeedCards, speedCandidates } from '../data/database';
 import type { SpeedFilter, SpeedOptions, SpeedSession } from '../core/speed';
-import { DEFAULT_SPEED_OPTIONS, SPEED_MAX_SELECTION, SPEED_MAX_PERFECT_ROUNDS, pruneSpeedSession, restartSpeedSession, speedAnswer, speedSkip, speedStats } from '../core/speed';
+import { DEFAULT_SPEED_OPTIONS, SPEED_MAX_SELECTION, SPEED_MAX_PERFECT_ROUNDS, pruneSpeedSession, nextChainSession, restartSpeedSession, speedAnswer, speedSkip, speedStats } from '../core/speed';
 
 const errorMessage = (e: unknown) => Alert.alert('Speed Learning', e instanceof Error ? e.message : String(e));
 const control = { paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: C.white, marginRight: 8 } as const;
@@ -21,14 +21,14 @@ function HeaderBack({title,onBack}:{title:string;onBack:()=>void}) {
 }
 export function SpeedSetupScreen({decks,initialDeckId,active,onResume,onClose,onStart,ui}:{
   decks:Deck[];initialDeckId:string|null;active:SpeedSession|null;onResume:()=>void;onClose:()=>void;ui:UIPrefs;
-  onStart:(ids:string[],options:SpeedOptions)=>Promise<void>;
+  onStart:(ids:string[],options:SpeedOptions,subsetSize?:number)=>Promise<void>;
 }) {
   const [deckId,setDeckId]=useState<string|null>(initialDeckId);
   const [search,setSearch]=useState(''),[tags,setTags]=useState(''),[state,setState]=useState<SpeedFilter>('all');
   const [includeSuspended,setIncludeSuspended]=useState(false);
   const [available,setAvailable]=useState<StudyCard[]>([]),[truncated,setTruncated]=useState(false);
   const [selected,setSelected]=useState<Record<string,boolean>>({}),[options,setOptions]=useState<SpeedOptions>(DEFAULT_SPEED_OPTIONS);
-  const [loading,setLoading]=useState(false),[starting,setStarting]=useState(false);
+  const [loading,setLoading]=useState(false),[starting,setStarting]=useState(false),[subsetSize,setSubsetSize]=useState(0);
   const selectedIds=useMemo(()=>Object.keys(selected).filter(id=>selected[id]),[selected]);
   const filterTags=tags.trim().split(/[\s,]+/).filter(Boolean);
   useEffect(()=>{
@@ -52,7 +52,7 @@ export function SpeedSetupScreen({decks,initialDeckId,active,onResume,onClose,on
   };
   const launch=async(ids:string[])=>{
     if(!ids.length)return;
-    const go=async()=>{try{setStarting(true);await onStart(ids,options);}catch(e){errorMessage(e);}finally{setStarting(false);}};
+    const go=async()=>{try{setStarting(true);await onStart(ids,options,subsetSize);}catch(e){errorMessage(e);}finally{setStarting(false);}};
     if(active&&active.queue.length){Alert.alert('Replace active sprint?', 'Your current progress will remain in history, but the new sprint becomes the active session.',[
       {text:'Cancel',style:'cancel'},{text:'Start new sprint',onPress:go},
     ]);}else await go();
@@ -100,6 +100,9 @@ export function SpeedSetupScreen({decks,initialDeckId,active,onResume,onClose,on
         <Label>Retry after other cards</Label>
         <View style={S.row}>{[0,2,4,8].map(n=><Chip key={n} label={n===0?'Immediately':`${n} cards`} active={options.retryGap===n} onPress={()=>setOptions(o=>({...o,retryGap:n}))}/>)}</View>
       </>}
+      <Label>Auto-split into subsets</Label>
+      <View style={[S.row,{flexWrap:'wrap',rowGap:9}]}>{[0,10,20,30,50].map(n=><Chip key={n} label={n===0?'Off':`${n} cards`} active={subsetSize===n} onPress={()=>setSubsetSize(n)}/>)}</View>
+      {subsetSize>0&&<Paragraph>Cards are split into groups of {subsetSize}. You can move to the next subset only after completing the current one.</Paragraph>}
       <Label>Response style</Label>
       <View style={S.row}><Chip label="Tap to reveal" active={options.input==='flip'} onPress={()=>setOptions(o=>({...o,input:'flip'}))}/><Chip label="Type then reveal" active={options.input==='type'} onPress={()=>setOptions(o=>({...o,input:'type'}))}/></View>
       <Pressable style={[S.row,{gap:9}]} onPress={()=>setOptions(o=>({...o,shuffle:!o.shuffle}))}><Feather name={options.shuffle?'check-square':'square'} size={18} color={C.accent}/><Text style={S.body}>Shuffle initial order</Text></Pressable>
@@ -167,12 +170,18 @@ export function SpeedPracticeScreen({session,onChange,onArchive,onNew,onClose,ui
   const grade=(correct:boolean)=>update(speedAnswer(session,correct,Date.now()));
   const skip=()=>update(speedSkip(session,Date.now()),false);
   const undo=()=>{if(previous.current)update({...previous.current,updatedAt:Date.now()},false);};
+  const chain=session.chain;
+  const hasNext=!!chain&&chain.index+1<chain.subsets.length;
+  const nextSubset=async()=>{
+    const next=nextChainSession(session,`${Date.now()}-${Math.floor(Math.random()*1e9)}`,Date.now());
+    if(next){previous.current=null;await update(next,false);}
+  };
   const restart=async(mode:'all'|'mistakes')=>{
     const next=restartSpeedSession(session,mode,`${Date.now()}-${Math.floor(Math.random()*1e9)}`,Date.now());
     if(next){previous.current=null;await update(next,false);}
   };
   return <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':undefined} style={[S.screen,{flex:1}]}>
-    <View style={{paddingHorizontal:19,paddingTop:15,paddingBottom:14}}><HeaderBack title="Speed Learning" onBack={onClose}/>
+    <View style={{paddingHorizontal:19,paddingTop:15,paddingBottom:14}}><HeaderBack title={chain?`Subset ${chain.index+1}/${chain.subsets.length}`:'Speed Learning'} onBack={onClose}/>
       <View style={[S.row,{justifyContent:'space-between',marginBottom:12}]}>
         <View><Label>{stats.perfectRoundsRequired?'PERFECT ROUNDS':'MASTERED'}</Label><Text style={{color:C.ink,fontSize:25,fontWeight:'900'}}>{stats.perfectRoundsRequired?stats.perfectStreak:stats.mastered}<Text style={{color:C.muted,fontSize:16}}> / {stats.perfectRoundsRequired||stats.total}</Text></Text></View>
         <View><Label>{stats.perfectRoundsRequired?'ROUND PROGRESS':'ACCURACY'}</Label><Text style={{color:C.ink,fontSize:25,fontWeight:'900'}}>{stats.perfectRoundsRequired?`${stats.roundAnswered}/${stats.total}`:`${stats.accuracy}%`}</Text></View>
@@ -186,9 +195,10 @@ export function SpeedPracticeScreen({session,onChange,onArchive,onNew,onClose,ui
     </View>
     {loading?<View style={{flex:1,justifyContent:'center',alignItems:'center'}}><Paragraph>Loading selected cards…</Paragraph></View>:
       session.queue.length===0?<ScrollView contentContainerStyle={{flexGrow:1,padding:25,justifyContent:'center',gap:15}}>
-        <View style={{alignItems:'center',gap:15}}><IconCircle icon="award" color={C.green} bg="#DFF9F0" size={74}/><Text style={[S.title,{textAlign:'center'}]}>Sprint completed</Text>
+        <View style={{alignItems:'center',gap:15}}><IconCircle icon="award" color={C.green} bg="#DFF9F0" size={74}/><Text style={[S.title,{textAlign:'center'}]}>{chain?`Subset ${chain.index+1}/${chain.subsets.length} completed`:'Sprint completed'}</Text>
           <Paragraph style={{textAlign:'center'}}>{stats.perfectRoundsRequired ? `You completed ${stats.perfectRoundsRequired} consecutive 100% rounds across ${stats.total} cards. ${stats.completedRounds} total rounds and ${stats.wrong} incorrect recalls.` : `You mastered ${stats.mastered} cards with ${stats.right} successful recalls and ${stats.wrong} retries.`} Speed Learning never changed your normal review schedule.</Paragraph></View>
         <View style={[S.panel,{gap:13,marginTop:10}]}><Text style={S.h2}>Your results</Text>{stats.perfectRoundsRequired>0&&<View style={[S.row,{justifyContent:'space-between'}]}><Paragraph>Consecutive perfect rounds</Paragraph><Text style={S.h2}>{stats.perfectStreak}/{stats.perfectRoundsRequired}</Text></View>}{stats.perfectRoundsRequired>0&&<View style={[S.row,{justifyContent:'space-between'}]}><Paragraph>Total rounds completed</Paragraph><Text style={S.h2}>{stats.completedRounds}</Text></View>}<View style={[S.row,{justifyContent:'space-between'}]}><Paragraph>Correct recall rate</Paragraph><Text style={S.h2}>{stats.accuracy}%</Text></View><View style={[S.row,{justifyContent:'space-between'}]}><Paragraph>Cards that caused trouble</Paragraph><Text style={S.h2}>{stats.difficult}</Text></View><View style={[S.row,{justifyContent:'space-between'}]}><Paragraph>Total attempts</Paragraph><Text style={S.h2}>{session.attempts}</Text></View></View>
+        {hasNext&&<Action icon="arrow-right" label={`Next subset (${chain!.index+2}/${chain!.subsets.length})`} onPress={nextSubset} loading={working}/>}
         {stats.difficult>0&&<Action icon="repeat" label={`Retry ${stats.difficult} difficult cards`} onPress={()=>restart('mistakes')} loading={working}/>}
         <Action tone="outline" label="Repeat entire subset" onPress={()=>restart('all')} loading={working}/><Action tone="ghost" label="Pick another subset" onPress={onNew}/><Action label="Finish and return home" onPress={()=>onArchive().catch(errorMessage)} />
       </ScrollView>:!card?<View style={{flex:1,justifyContent:'center',alignItems:'center',gap:15,padding:25}}><Paragraph>One or more selected flashcards were deleted. Exit and resume to refresh this sprint.</Paragraph><Action label="Return home" onPress={onClose}/></View>:

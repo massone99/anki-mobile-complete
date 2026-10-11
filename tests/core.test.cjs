@@ -207,3 +207,15 @@ test('Anki columns may leave tags empty and fields with literal quotes survive',
   const r=textImport.parseAnkiText('#tags column:3\nsay "hi"\tgreeting\t\n','a.txt');
   assert.equal(r[0].front,'say "hi"');assert.equal(r[0].back,'greeting');assert.deepEqual(Array.from(r[0].tags),[]);
 });
+test('auto-split chain unlocks next subset only after completion',()=>{
+  const opts={passesRequired:1,retryGap:0,shuffle:false,input:'flip',perfectRoundsRequired:0};
+  let s=speed.newChainSession(['a','b','c'],opts,2,'1',100);
+  assert.deepEqual(Array.from(s.selectedIds),['a','b']);
+  assert.equal(speed.nextChainSession(s,'2',200),null);
+  s=speed.speedAnswer(s,true,300);s=speed.speedAnswer(s,true,400);
+  const next=speed.nextChainSession(s,'2',500);
+  assert.deepEqual(Array.from(next.selectedIds),['c']);
+  assert.equal(next.chain.index,1);
+  const done=speed.speedAnswer(next,true,600);
+  assert.equal(speed.nextChainSession(done,'3',700),null);
+});

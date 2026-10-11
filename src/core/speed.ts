@@ -40,6 +40,8 @@ export interface SpeedSession {
   perfectStreak?: number;
   completedRounds?: number;
   roundHistory?: RoundResult[];
+  /** Auto-split chain: subsets are practised in order; the next unlocks only after the current one is complete. */
+  chain?: { subsets: string[][]; index: number };
 }
 export const DEFAULT_SPEED_OPTIONS: SpeedOptions = {
   passesRequired: 2, retryGap: 3, shuffle: true, input: 'flip', perfectRoundsRequired: 2,
@@ -77,6 +79,26 @@ export function newSpeedSession(ids: string[], options: SpeedOptions, id: string
  * requires N consecutive complete rounds with zero mistakes. Legacy card
  * mastery mode retains its independent per-card retry spacing.
  */
+export function splitIntoSubsets(ids: string[], size: number): string[][] {
+  const unique = Array.from(new Set(ids));
+  const n = Math.max(1, Math.floor(size));
+  const out: string[][] = [];
+  for (let i = 0; i < unique.length; i += n) out.push(unique.slice(i, i + n));
+  return out;
+}
+/** Starts the first subset of a chain built from `ids` split into groups of `size`. */
+export function newChainSession(ids: string[], options: SpeedOptions, size: number, id: string, now: number, random: () => number = Math.random): SpeedSession {
+  const subsets = splitIntoSubsets(ids, size);
+  if (!subsets.length) throw new Error(`Choose 1–${SPEED_MAX_SELECTION} cards.`);
+  return { ...newSpeedSession(subsets[0], options, id, now, random), chain: { subsets, index: 0 } };
+}
+/** Next subset of the chain, available only once the current session is complete (empty queue). */
+export function nextChainSession(session: SpeedSession, id: string, now: number, random: () => number = Math.random): SpeedSession | null {
+  const chain = session.chain;
+  if (!chain || session.queue.length || chain.index + 1 >= chain.subsets.length) return null;
+  const index = chain.index + 1;
+  return { ...newSpeedSession(chain.subsets[index], session.options, id, now, random), chain: { subsets: chain.subsets, index } };
+}
 export function speedAnswer(session: SpeedSession, correct: boolean, now: number, random: () => number = Math.random): SpeedSession {
   if (!session.queue.length) return session;
   const [cardId, ...remaining] = session.queue;
@@ -151,7 +173,8 @@ export function speedStats(session: SpeedSession) {
 export function restartSpeedSession(session: SpeedSession, mode: 'all' | 'mistakes', id: string, now: number, random: () => number = Math.random): SpeedSession | null {
   const ids = mode === 'mistakes' ? session.selectedIds.filter(cid => session.scores[cid]?.wrong > 0) : session.selectedIds;
   if (!ids.length) return null;
-  return newSpeedSession(ids, session.options, id, now, random);
+  const next = newSpeedSession(ids, session.options, id, now, random);
+  return session.chain ? { ...next, chain: session.chain } : next;
 }
 /** Deleted cards cannot count as correct; reset perfect-round progress for changed subsets. */
 export function pruneSpeedSession(session: SpeedSession, existingIds: string[]): SpeedSession {
