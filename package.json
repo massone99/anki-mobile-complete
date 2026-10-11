@@ -1,0 +1,36 @@
+{
+  "name": "ankiflow-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.cjs",
+    "doctor": "expo-doctor"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.16",
+    "@expo/vector-icons": "^15.0.3",
+    "expo": "~57.0.17",
+    "expo-audio": "~57.0.5",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-sharing": "~57.0.22",
+    "expo-sqlite": "~57.0.4",
+    "jszip": "^3.10.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "^5.6.2",
+    "react-native-web": "^0.21.2",
+    "ts-fsrs": "^5.4.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "typescript": "~5.9.2",
+    "expo-doctor": "^1.17.0"
+  }
+}

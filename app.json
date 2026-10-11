@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Recall — Spaced Repetition",
+    "slug": "ankiflow-mobile",
+    "scheme": "ankiflow",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "android": { "package": "com.example.ankiflow", "edgeToEdgeEnabled": true },
+    "ios": { "bundleIdentifier": "com.example.ankiflow", "supportsTablet": true },
+    "plugins": ["expo-document-picker", "expo-sqlite"],
+    "experiments": { "tsconfigPaths": true }
+  }
+}
