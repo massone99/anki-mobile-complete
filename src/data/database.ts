@@ -186,6 +186,7 @@ export async function dueCards(deckId: string|null, settings:Settings, limit=500
     out.push({...decodeCard(r),front:r.front,back:r.back,noteType:r.type,tags:JSON.parse(r.tags||'[]'),deckName:r.deck_name});
     if(out.length>=limit)break;
   }
+  for(let i=out.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[out[i],out[j]]=[out[j],out[i]];}
   return out;
 }
 export async function getCard(id:string):Promise<StudyCard|null>{
