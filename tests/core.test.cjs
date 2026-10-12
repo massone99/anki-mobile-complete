@@ -219,3 +219,8 @@ test('auto-split chain unlocks next subset only after completion',()=>{
   const done=speed.speedAnswer(next,true,600);
   assert.equal(speed.nextChainSession(done,'3',700),null);
 });
+test('groupByTopic groups by key and caps size',()=>{
+  const g=speed.groupByTopic([{id:'1',key:'A'},{id:'2',key:'B'},{id:'3',key:'A'},{id:'4',key:'A'}],2);
+  assert.equal(JSON.stringify(g.subsets),JSON.stringify([['1','3'],['4'],['2']]));
+  assert.deepEqual(Array.from(g.labels),['A (1/2)','A (2/2)','B']);
+});
