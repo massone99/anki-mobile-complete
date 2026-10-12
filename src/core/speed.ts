@@ -41,7 +41,7 @@ export interface SpeedSession {
   completedRounds?: number;
   roundHistory?: RoundResult[];
   /** Auto-split chain: subsets are practised in order; the next unlocks only after the current one is complete. */
-  chain?: { subsets: string[][]; index: number };
+  chain?: { subsets: string[][]; index: number; labels?: string[] };
 }
 export const DEFAULT_SPEED_OPTIONS: SpeedOptions = {
   passesRequired: 2, retryGap: 3, shuffle: true, input: 'flip', perfectRoundsRequired: 2,
@@ -86,18 +86,32 @@ export function splitIntoSubsets(ids: string[], size: number): string[][] {
   for (let i = 0; i < unique.length; i += n) out.push(unique.slice(i, i + n));
   return out;
 }
-/** Starts the first subset of a chain built from `ids` split into groups of `size`. */
-export function newChainSession(ids: string[], options: SpeedOptions, size: number, id: string, now: number, random: () => number = Math.random): SpeedSession {
-  const subsets = splitIntoSubsets(ids, size);
+export type SplitMode = 'off' | 'size' | 'tag' | 'deck';
+/** Groups cards by topic key (first-seen order); `maxSize` > 0 further splits big topics. */
+export function groupByTopic(items: { id: string; key: string }[], maxSize = 0): { subsets: string[][]; labels: string[] } {
+  const groups = new Map<string, string[]>();
+  for (const it of items) { const g = groups.get(it.key); if (g) g.push(it.id); else groups.set(it.key, [it.id]); }
+  const subsets: string[][] = [], labels: string[] = [];
+  groups.forEach((ids, key) => {
+    const parts = maxSize > 0 ? splitIntoSubsets(ids, maxSize) : [ids];
+    parts.forEach((part, i) => { subsets.push(part); labels.push(parts.length > 1 ? `${key} (${i + 1}/${parts.length})` : key); });
+  });
+  return { subsets, labels };
+}
+/** Starts the first subset of a chain made of the given subsets (practised in order). */
+export function newChainFromSubsets(subsets: string[][], labels: string[] | undefined, options: SpeedOptions, id: string, now: number, random: () => number = Math.random): SpeedSession {
   if (!subsets.length) throw new Error(`Choose 1–${SPEED_MAX_SELECTION} cards.`);
-  return { ...newSpeedSession(subsets[0], options, id, now, random), chain: { subsets, index: 0 } };
+  return { ...newSpeedSession(subsets[0], options, id, now, random), chain: { subsets, index: 0, labels } };
+}
+export function newChainSession(ids: string[], options: SpeedOptions, size: number, id: string, now: number, random: () => number = Math.random): SpeedSession {
+  return newChainFromSubsets(splitIntoSubsets(ids, size), undefined, options, id, now, random);
 }
 /** Next subset of the chain, available only once the current session is complete (empty queue). */
 export function nextChainSession(session: SpeedSession, id: string, now: number, random: () => number = Math.random): SpeedSession | null {
   const chain = session.chain;
   if (!chain || session.queue.length || chain.index + 1 >= chain.subsets.length) return null;
   const index = chain.index + 1;
-  return { ...newSpeedSession(chain.subsets[index], session.options, id, now, random), chain: { subsets: chain.subsets, index } };
+  return { ...newSpeedSession(chain.subsets[index], session.options, id, now, random), chain: { ...chain, index } };
 }
 export function speedAnswer(session: SpeedSession, correct: boolean, now: number, random: () => number = Math.random): SpeedSession {
   if (!session.queue.length) return session;

@@ -8,8 +8,8 @@ import { renderCard } from '../core/cards';
 import { C, S, Action, IconCircle, Label, Paragraph, type UIPrefs } from '../theme/ui';
 import { CardBody } from '../theme/CardBody';
 import { getSpeedCards, speedCandidates } from '../data/database';
-import type { SpeedFilter, SpeedOptions, SpeedSession } from '../core/speed';
-import { DEFAULT_SPEED_OPTIONS, SPEED_MAX_SELECTION, SPEED_MAX_PERFECT_ROUNDS, pruneSpeedSession, nextChainSession, restartSpeedSession, speedAnswer, speedSkip, speedStats } from '../core/speed';
+import type { SplitMode, SpeedFilter, SpeedOptions, SpeedSession } from '../core/speed';
+import { DEFAULT_SPEED_OPTIONS, SPEED_MAX_SELECTION, groupByTopic, splitIntoSubsets, SPEED_MAX_PERFECT_ROUNDS, pruneSpeedSession, nextChainSession, restartSpeedSession, speedAnswer, speedSkip, speedStats } from '../core/speed';
 
 const errorMessage = (e: unknown) => Alert.alert('Speed Learning', e instanceof Error ? e.message : String(e));
 const control = { paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: C.white, marginRight: 8 } as const;
@@ -21,14 +21,16 @@ function HeaderBack({title,onBack}:{title:string;onBack:()=>void}) {
 }
 export function SpeedSetupScreen({decks,initialDeckId,active,onResume,onClose,onStart,ui}:{
   decks:Deck[];initialDeckId:string|null;active:SpeedSession|null;onResume:()=>void;onClose:()=>void;ui:UIPrefs;
-  onStart:(ids:string[],options:SpeedOptions,subsetSize?:number)=>Promise<void>;
+  onStart:(ids:string[],options:SpeedOptions,plan?:{subsets:string[][];labels:string[]})=>Promise<void>;
 }) {
   const [deckId,setDeckId]=useState<string|null>(initialDeckId);
   const [search,setSearch]=useState(''),[tags,setTags]=useState(''),[state,setState]=useState<SpeedFilter>('all');
   const [includeSuspended,setIncludeSuspended]=useState(false);
   const [available,setAvailable]=useState<StudyCard[]>([]),[truncated,setTruncated]=useState(false);
   const [selected,setSelected]=useState<Record<string,boolean>>({}),[options,setOptions]=useState<SpeedOptions>(DEFAULT_SPEED_OPTIONS);
-  const [loading,setLoading]=useState(false),[starting,setStarting]=useState(false),[subsetSize,setSubsetSize]=useState(0);
+  const [loading,setLoading]=useState(false),[starting,setStarting]=useState(false),[splitMode,setSplitMode]=useState<SplitMode>('off'),[subsetSize,setSubsetSize]=useState(20);
+  const seen=useRef<Record<string,StudyCard>>({});
+  available.forEach(c=>{seen.current[c.id]=c;});
   const selectedIds=useMemo(()=>Object.keys(selected).filter(id=>selected[id]),[selected]);
   const filterTags=tags.trim().split(/[\s,]+/).filter(Boolean);
   useEffect(()=>{
@@ -50,14 +52,21 @@ export function SpeedSetupScreen({decks,initialDeckId,active,onResume,onClose,on
     setSelected(prev=>{const next={...prev};additions.forEach(c=>{next[c.id]=true;});return next;});
     if(additions.length<available.filter(c=>!selected[c.id]).length)Alert.alert('Selection limit',`Selected the first ${SPEED_MAX_SELECTION} cards. Refine your filters for a more specific subset.`);
   };
+  const primaryIds=selectedIds.length?selectedIds:available.slice(0,SPEED_MAX_SELECTION).map(c=>c.id);
+  const primaryIdsRef={current:primaryIds};
+  const buildPlan=(ids:string[])=>{
+    if(splitMode==='off')return undefined;
+    if(splitMode==='size')return {subsets:splitIntoSubsets(ids,subsetSize||1),labels:[] as string[]};
+    return groupByTopic(ids.map(id=>{const c=seen.current[id];return {id,key:splitMode==='deck'?(c?.deckName||'No deck'):(c?.tags?.[0]||'Untagged')};}),subsetSize);
+  };
+  const planCount=splitMode==='off'?0:buildPlan(primaryIdsRef.current)?.subsets.length||0;
   const launch=async(ids:string[])=>{
     if(!ids.length)return;
-    const go=async()=>{try{setStarting(true);await onStart(ids,options,subsetSize);}catch(e){errorMessage(e);}finally{setStarting(false);}};
+    const go=async()=>{try{setStarting(true);await onStart(ids,options,buildPlan(ids));}catch(e){errorMessage(e);}finally{setStarting(false);}};
     if(active&&active.queue.length){Alert.alert('Replace active sprint?', 'Your current progress will remain in history, but the new sprint becomes the active session.',[
       {text:'Cancel',style:'cancel'},{text:'Start new sprint',onPress:go},
     ]);}else await go();
   };
-  const primaryIds=selectedIds.length?selectedIds:available.slice(0,SPEED_MAX_SELECTION).map(c=>c.id);
   const selector=<>
     <Text style={[S.h2,{marginBottom:6}]}>Choose your targets.</Text>
     <Paragraph>Filter the collection or handpick cards. Only your chosen subset enters the sprint.</Paragraph>
@@ -101,8 +110,15 @@ export function SpeedSetupScreen({decks,initialDeckId,active,onResume,onClose,on
         <View style={S.row}>{[0,2,4,8].map(n=><Chip key={n} label={n===0?'Immediately':`${n} cards`} active={options.retryGap===n} onPress={()=>setOptions(o=>({...o,retryGap:n}))}/>)}</View>
       </>}
       <Label>Auto-split into subsets</Label>
-      <View style={[S.row,{flexWrap:'wrap',rowGap:9}]}>{[0,10,20,30,50].map(n=><Chip key={n} label={n===0?'Off':`${n} cards`} active={subsetSize===n} onPress={()=>setSubsetSize(n)}/>)}</View>
-      {subsetSize>0&&<Paragraph>Cards are split into groups of {subsetSize}. You can move to the next subset only after completing the current one.</Paragraph>}
+      <View style={[S.row,{flexWrap:'wrap',rowGap:9}]}>{([['off','Off'],['size','By size'],['tag','By topic (tag)'],['deck','By deck']] as const).map(([m,l])=><Chip key={m} label={l} active={splitMode===m} onPress={()=>setSplitMode(m)}/>)}</View>
+      {splitMode!=='off'&&<>
+        <Label>{splitMode==='size'?'Cards per subset':'Max cards per subset (0 = no limit)'}</Label>
+        <View style={[S.row,{flexWrap:'wrap',rowGap:9,alignItems:'center'}]}>
+          {[10,20,30,50].map(n=><Chip key={n} label={`${n}`} active={subsetSize===n} onPress={()=>setSubsetSize(n)}/>)}
+          <TextInput value={String(subsetSize)} onChangeText={t=>setSubsetSize(Math.min(SPEED_MAX_SELECTION,Math.max(0,parseInt(t.replace(/\D/g,''),10)||0)))} keyboardType="number-pad" accessibilityLabel="Custom subset size" style={[control,{width:70,textAlign:'center',color:C.ink,fontWeight:'800',marginRight:0}]}/>
+        </View>
+        <Paragraph>{splitMode==='size'?`Cards are split into groups of ${subsetSize||1}.`:`Cards are grouped by ${splitMode==='tag'?'their first tag':'deck'}.`} {planCount>0?`${planCount} subsets. `:''}The next subset unlocks only after completing the current one.</Paragraph>
+      </>}
       <Label>Response style</Label>
       <View style={S.row}><Chip label="Tap to reveal" active={options.input==='flip'} onPress={()=>setOptions(o=>({...o,input:'flip'}))}/><Chip label="Type then reveal" active={options.input==='type'} onPress={()=>setOptions(o=>({...o,input:'type'}))}/></View>
       <Pressable style={[S.row,{gap:9}]} onPress={()=>setOptions(o=>({...o,shuffle:!o.shuffle}))}><Feather name={options.shuffle?'check-square':'square'} size={18} color={C.accent}/><Text style={S.body}>Shuffle initial order</Text></Pressable>
@@ -181,7 +197,7 @@ export function SpeedPracticeScreen({session,onChange,onArchive,onNew,onClose,ui
     if(next){previous.current=null;await update(next,false);}
   };
   return <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':undefined} style={[S.screen,{flex:1}]}>
-    <View style={{paddingHorizontal:19,paddingTop:15,paddingBottom:14}}><HeaderBack title={chain?`Subset ${chain.index+1}/${chain.subsets.length}`:'Speed Learning'} onBack={onClose}/>
+    <View style={{paddingHorizontal:19,paddingTop:15,paddingBottom:14}}><HeaderBack title={chain?`${chain.labels?.[chain.index]||'Subset'} · ${chain.index+1}/${chain.subsets.length}`:'Speed Learning'} onBack={onClose}/>
       <View style={[S.row,{justifyContent:'space-between',marginBottom:12}]}>
         <View><Label>{stats.perfectRoundsRequired?'PERFECT ROUNDS':'MASTERED'}</Label><Text style={{color:C.ink,fontSize:25,fontWeight:'900'}}>{stats.perfectRoundsRequired?stats.perfectStreak:stats.mastered}<Text style={{color:C.muted,fontSize:16}}> / {stats.perfectRoundsRequired||stats.total}</Text></Text></View>
         <View><Label>{stats.perfectRoundsRequired?'ROUND PROGRESS':'ACCURACY'}</Label><Text style={{color:C.ink,fontSize:25,fontWeight:'900'}}>{stats.perfectRoundsRequired?`${stats.roundAnswered}/${stats.total}`:`${stats.accuracy}%`}</Text></View>
