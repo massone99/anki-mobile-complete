@@ -13,7 +13,7 @@ import { addNote, allDecks, answerCard, buryCard, createDeck, deleteDeck, dueCar
 import { exportAPKG, exportBackup, exportTSV, pickAndImport } from './src/services/importExport';
 import { pullNotesFromDesktop, pushNotesToDesktop, syncDesktopToAnkiWeb, testBridge } from './src/services/desktopBridge';
 import { db, archiveSpeedSession, loadSpeedSession, saveSpeedSession } from './src/data/database';
-import { newSpeedSession } from './src/core/speed';
+import { newChainSession, newSpeedSession } from './src/core/speed';
 import type { SpeedOptions, SpeedSession } from './src/core/speed';
 import { SpeedSetupScreen, SpeedPracticeScreen } from './src/screens/SpeedLearning';
 import { uid } from './src/core/types';
@@ -259,7 +259,7 @@ export default function App(){
   useEffect(()=>{db().then(refresh).then(async()=>{const p=await loadUIPrefs();applyAccent(p.accent);setUI(p);setSpeedSession(await loadSpeedSession());}).catch(e=>{setBootError(e instanceof Error?e.message:String(e));alertError(e);}).finally(()=>setReady(true));},[]);
   const study=(deckId:string|null)=>{setStudyDeck(deckId);setView('study');};
   const speedSetup=(deckId:string|null=null)=>{setSpeedDeck(deckId);setView('speedSetup');};
-  const startSpeed=async(ids:string[],options:SpeedOptions)=>{const session=newSpeedSession(ids,options,uid(),Date.now());await saveSpeedSession(session);setSpeedSession(session);setView('speed');};
+  const startSpeed=async(ids:string[],options:SpeedOptions,subsetSize=0)=>{const session=subsetSize>0?newChainSession(ids,options,subsetSize,uid(),Date.now()):newSpeedSession(ids,options,uid(),Date.now());await saveSpeedSession(session);setSpeedSession(session);setView('speed');};
   const changeSpeed=async(session:SpeedSession)=>{await saveSpeedSession(session);setSpeedSession(session);};
   const archiveSpeed=async()=>{if(speedSession)await archiveSpeedSession(speedSession.id);setSpeedSession(null);setView('home');await refresh();};
   const openAdd=(note?:Note|null,deckId?:string)=>{setEditingNote(note||null);if(deckId)setSelectedDeck(deckId);setShowNote(true);};
